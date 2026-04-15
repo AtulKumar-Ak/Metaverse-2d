@@ -1,13 +1,17 @@
+//frontend/app/canvas/[roomId]/page.tsx
+
 import { RoomCanvas } from "@/app/components/Roomcanvas";
 
-export default function CanvasPage({ params }: { params: { roomId: string } }) {
-  const roomId = params.roomId;
-  return(
-    <>
-    <RoomCanvas roomId={roomId} />
-    </>
+export default async function CanvasPage({ params }: { params: Promise<{ roomId: string }> }) {
+    
+    // 2. Await the params to get the actual roomId
+    const { roomId } = await params;
 
-  ) 
+    return (
+        <>
+            <RoomCanvas roomId={roomId} />
+        </>
+    );
 }
 
 

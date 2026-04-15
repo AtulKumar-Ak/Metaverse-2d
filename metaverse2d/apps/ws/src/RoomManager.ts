@@ -1,3 +1,4 @@
+//ws/src/RoomManager.ts
 import type { User } from "./User";
 import {OutgoingMessage} from './types'
 export class RoomManager{
@@ -31,5 +32,14 @@ export class RoomManager{
                 x.send(message);
             }
         })
+    }
+    public sendMessageToUser(toUserId: string, message: any) {
+        // We iterate through all rooms to find the user with the matching ID
+        this.rooms.forEach((users) => {
+            const recipient = users.find(u => u.userId === toUserId);
+            if (recipient) {
+                recipient.send(message);
+            }
+        });
     }
 }

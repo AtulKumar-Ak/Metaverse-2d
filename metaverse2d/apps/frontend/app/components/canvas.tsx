@@ -1,7 +1,10 @@
+//frontend/app/components/canvas.tsx
+
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-
+import { useWebRTC } from "../hooks/useWebRTC";
+import { isNear, getProximityVolume, Player } from "./SpatialManger";
 interface Player {
   userId: string;
   x: number;
@@ -13,16 +16,34 @@ interface CanvasProps {
   socket: WebSocket;
   messages: string[];
   sendMessage: (data: object) => void;
+  width: number;
+  height: number;
+  elements: any[];
+  initialUserId: string;                                    // ← new
+  initialSpawn: { x: number; y: number };                  // ← new
+  initialUsers: { userId: string; x: number; y: number }[]; // ← new
 }
-
+const imageCache: Record<string, HTMLImageElement> = {};
 export function Canvas(props: CanvasProps) {
+  const userIdRef = useRef<string>(props.initialUserId); 
+  const [imagesLoaded, setImagesLoaded] = useState(0);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [players, setPlayers] = useState<Record<string, Player>>({});
-  const [userId, setUserId] = useState<string>("");
-  const [canvasSize, setCanvasSize] = useState({ width: 800, height: 600 });
-
+  const [userId, setUserId] = useState<string>(props.initialUserId);
+  const [canvasSize, setCanvasSize] = useState({ width: props.width, height: props.height });
+  const { initiateCall, disconnectFrom, setUserVolume, handleSignaling, peerConnections } = useWebRTC(props.socket, userId);
+  
   const tileSize = 50;
-
+  const [players, setPlayers] = useState<Record<string, Player>>(() => {
+    const initial: Record<string, Player> = {};
+    props.initialUsers.forEach(u => { initial[u.userId] = u; });
+    initial[props.initialUserId] = {
+      userId: props.initialUserId,
+      x: props.initialSpawn.x,
+      y: props.initialSpawn.y,
+    };
+    return initial;
+  });
+  
   // Handle window resize
   useEffect(() => {
     const updateCanvasSize = () => {
@@ -37,111 +58,109 @@ export function Canvas(props: CanvasProps) {
     return () => window.removeEventListener("resize", updateCanvasSize);
   }, []);
 
-  useEffect(() => {
-    if (!props.socket) return;
+  // canvas.tsx
 
-    const handleMessage = (event: MessageEvent) => {
-      const data = JSON.parse(event.data);
-      
-      // Debug logging (remove in production)
-      console.log(`Tab ${userId}: Received message:`, data);
 
-      switch (data.type) {
-        case "space-joined": {
-          const { users, spawn, userId } = data.payload;
-          const newPlayers: Record<string, Player> = {};
+useEffect(() => {
+  if (!props.socket) return;
 
-          users.forEach((element: any) => {
-            newPlayers[element.userId] = {
-              userId: element.userId,
-              x: element.x,
-              y: element.y,
-            };
-          });
+  const handleMessage = (event: MessageEvent) => {
+    const data = JSON.parse(event.data);
 
-          newPlayers[userId] = {
-            userId,
-            x: spawn.x,
-            y: spawn.y,
-          };
+    switch (data.type) {
 
-          setUserId(userId);
-          setPlayers(newPlayers);
-          break;
-        }
-
-        case "user-joined": {
-          const { userId, x, y } = data.payload;
-          setPlayers((prev) => ({
-            ...prev,
-            [userId]: { userId, x, y },
-          }));
-          break;
-        }
-
-        case "movement": {
-          const { userId: movingUserId, x, y } = data.payload;
-          // Update other players' positions (not your own since you update optimistically)
-          if (movingUserId !== userId) {
-            setPlayers((prev) => ({
-              ...prev,
-              [movingUserId]: { ...prev[movingUserId], x, y },
-            }));
-          }
-          break;
-        }
-
-        case "movement-rejected": {
-          const { x, y, userId: rejectedUserId } = data.payload;
-          // Only update if this rejection is for the current user
-          if (rejectedUserId === userId) {
-            setPlayers((prev) => ({
-              ...prev,
-              [userId]: { ...prev[userId], x, y },
-            }));
-          }
-          break;
-        }
-
-        case "user-left": {
-          const { userId } = data.payload;
-          setPlayers((prev) => {
-            const updated = { ...prev };
-            delete updated[userId];
-            return updated;
-          });
-          break;
-        }
+      case "user-joined": {
+        const { userId: joinedId, x, y } = data.payload;
+        setPlayers((prev) => ({
+          ...prev,
+          [joinedId]: { userId: joinedId, x, y },
+        }));
+        break;
       }
-    };
 
-    props.socket.addEventListener("message", handleMessage);
-    return () => props.socket.removeEventListener("message", handleMessage);
-  }, [props.socket, userId]);
+      case "movement": {
+        const { userId: movingId, x, y } = data.payload;
+        setPlayers((prev) => {
+          if (movingId === userIdRef.current) return prev; // ignore own movement echoes
+          return {
+            ...prev,
+            [movingId]: { ...prev[movingId], x, y },
+          };
+        });
+        break;
+      }
+
+      case "movement-rejected": {
+        const { x, y } = data.payload;
+        setPlayers((prev) => ({
+          ...prev,
+          [userIdRef.current]: { ...prev[userIdRef.current], x, y },
+        }));
+        break;
+      }
+
+      case "user-left": {
+        const { userId: leftId } = data.payload;
+        setPlayers((prev) => {
+          const updated = { ...prev };
+          delete updated[leftId];
+          return updated;
+        });
+        break;
+      }
+
+      case "signaling": {
+        handleSignaling(data.payload.fromUserId, data.payload.signal);
+        break;
+      }
+      case "user-left": {
+        const { userId: leftId } = data.payload;
+        disconnectFrom(leftId);   // ← clean up WebRTC
+        setPlayers((prev) => {
+          const updated = { ...prev };
+          delete updated[leftId];
+          return updated;
+        });
+        break;
+}
+    }
+  };
+
+  props.socket.addEventListener("message", handleMessage);
+  return () => props.socket.removeEventListener("message", handleMessage);
+}, [props.socket]);
+
 
   const move = useCallback((dx: number, dy: number) => {
-    const current = players[userId];
-    if (!current) return;
     
-    const newX = current.x + dx;
-    const newY = current.y + dy;
-    
-    // Optimistically update local position
-    setPlayers((prev) => ({
-      ...prev,
-      [userId]: { ...prev[userId], x: newX, y: newY },
-    }));
-    
-    // Send move request to server
-    props.sendMessage({
-      type: "move",
-      payload: {
-        x: newX,
-        y: newY,
-        userId,
-      },
-    });
-  }, [players, userId, props.sendMessage]);
+  const activeId = userIdRef.current;
+  const current = players[activeId];
+  if (!activeId || !current) return;
+
+  const newX = current.x + dx;
+  const newY = current.y + dy;
+  const updatedMe: Player = { userId: activeId, x: newX, y: newY };
+
+  setPlayers((prev) => ({ ...prev, [activeId]: updatedMe }));
+  props.sendMessage({ type: "move", payload: { x: newX, y: newY, userId: activeId } });
+
+  // Proximity voice chat
+  Object.values(players).forEach((otherPlayer) => {
+    if (otherPlayer.userId === activeId) return;
+
+    const near = isNear(updatedMe, otherPlayer);
+    const alreadyConnected = !!peerConnections.current?.[otherPlayer.userId];
+
+    if (near && !alreadyConnected) {
+      initiateCall(otherPlayer.userId);                         // connect
+    } else if (!near && alreadyConnected) {
+      disconnectFrom(otherPlayer.userId);                       // disconnect
+    } else if (near && alreadyConnected) {
+      const vol = getProximityVolume(updatedMe, otherPlayer);
+      setUserVolume(otherPlayer.userId, vol);                   // fade volume
+    }
+  });
+}, [players, props.sendMessage, initiateCall, disconnectFrom, setUserVolume]);
 
   // Handle keyboard controls
   useEffect(() => {
@@ -180,13 +199,16 @@ export function Canvas(props: CanvasProps) {
 
   // Drawing effect
   useEffect(() => {
+    console.log("Current Elements in Canvas:", props.elements);
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
+    const activeId = userIdRef.current;
+    const currentUser = players[activeId];
+    if (!currentUser) return;
+    const others = Object.values(players).filter((p) => p.userId !== activeId);
 
-    const currentUser = players[userId];
-    const others = Object.values(players).filter((p) => p.userId !== userId);
 
     // Clear canvas
     ctx.clearRect(0, 0, canvas.width, canvas.height);
@@ -196,25 +218,71 @@ export function Canvas(props: CanvasProps) {
     const camY = (currentUser?.y ?? 0) * tileSize - canvas.height / 2;
 
     // Draw grid
-    ctx.strokeStyle = "#444";
+    ctx.strokeStyle = "#cbd5e1";
     ctx.lineWidth = 1;
+    // Calculate where the first line should start based on camera offset
+    const offsetX = -camX % tileSize;
+    const offsetY = -camY % tileSize;
     
     // Vertical lines
-    for (let x = -camX % tileSize; x < canvas.width; x += tileSize) {
+    for (let x = offsetX; x < canvas.width; x += tileSize) {
       ctx.beginPath();
       ctx.moveTo(x, 0);
       ctx.lineTo(x, canvas.height);
       ctx.stroke();
     }
-    
+
     // Horizontal lines
-    for (let y = -camY % tileSize; y < canvas.height; y += tileSize) {
+    for (let y = offsetY; y < canvas.height; y += tileSize) {
       ctx.beginPath();
       ctx.moveTo(0, y);
       ctx.lineTo(canvas.width, y);
       ctx.stroke();
     }
 
+    // Replace 100 with your actual space width/height if passed in props
+    const spaceWidth = props.width;
+    const spaceHeight = props.height;
+    ctx.strokeStyle = "#ef4444"; // Red border for world limits
+    ctx.lineWidth = 4;
+    ctx.strokeRect(
+      0 - camX, 
+      0 - camY, 
+      spaceWidth * tileSize, 
+      spaceHeight * tileSize
+    );
+    // 3. Draw Static Elements (Walls/Chairs)
+    const drawImage = (url: string, x: number, y: number) => {
+    if (!imageCache[url]) {
+        const img = new Image();
+        img.src = url;
+        img.onload = () => {
+            imageCache[url] = img;
+            // This force-triggers the useEffect to run again once the image is ready
+            setImagesLoaded(prev => prev + 1);
+        };
+        return; 
+    }
+    ctx.drawImage(imageCache[url], x, y, tileSize, tileSize);
+};
+
+// 3. Update the loop that draws elements
+props.elements?.forEach((e: any) => {
+    const ex = e.x * tileSize - camX;
+    const ey = e.y * tileSize - camY;
+
+    // Based on your Prisma include: include: { element: true }
+    // The imageUrl is inside e.element.imageUrl
+    const imageUrl = e.element?.imageUrl;
+
+    if (imageUrl) {
+        drawImage(imageUrl, ex, ey);
+    } else {
+        // Fallback color so you can at least see where the objects are
+        ctx.fillStyle = e.element?.static ? "#334155" : "#94a3b8"; 
+        ctx.fillRect(ex, ey, tileSize, tileSize);
+    }
+});
     // Draw other players
     others.forEach((p) => {
       const px = p.x * tileSize - camX + tileSize / 2;
@@ -231,27 +299,28 @@ export function Canvas(props: CanvasProps) {
         ctx.fillStyle = "#000";
         ctx.font = "14px Arial";
         ctx.textAlign = "center";
-        ctx.fillText(p.userId.slice(0, 3), px, py + 35);
+        if (p.userId) {
+            ctx.fillText(p.userId.slice(0, 3), px, py + 35);
+        }
       }
     });
 
     // Draw current user
     if (currentUser) {
-      const px = currentUser.x * tileSize - camX + tileSize / 2;
-      const py = currentUser.y * tileSize - camY + tileSize / 2;
-      
-      ctx.beginPath();
-      ctx.fillStyle = "#4ade80";
-      ctx.arc(px, py, 20, 0, Math.PI * 2);
-      ctx.fill();
-      
-      // Draw "You" label
-      ctx.fillStyle = "#000";
-      ctx.font = "14px Arial";
-      ctx.textAlign = "center";
-      ctx.fillText("You", px, py + 35);
-    }
-  }, [players, userId, canvasSize]);
+  const px = currentUser.x * tileSize - camX;
+  const py = currentUser.y * tileSize - camY;
+  
+  // Draw player body
+  ctx.fillStyle = "#4ade80";
+  ctx.fillRect(px + 5, py + 5, tileSize - 10, tileSize - 10); // Centered square
+  
+  // Draw "You" tag
+  ctx.fillStyle = "#1e293b";
+  ctx.font = "bold 12px sans-serif";
+  ctx.textAlign = "center";
+  ctx.fillText("YOU", px + tileSize/2, py - 5);
+}
+  },[players, canvasSize, props.elements, imagesLoaded]);
 
   return (
     <div className="relative w-screen h-screen overflow-hidden bg-gray-100">

@@ -1,70 +1,98 @@
+//frontend/app/components/Roomcanvas.tsx
 "use client"
 import { useEffect, useRef, useState } from "react"
-import {Canvas} from './canvas'
+import { Canvas } from './canvas'
 import { useRouter } from "next/navigation"
-export function RoomCanvas({roomId}:{
-    roomId:string
-}){
-    const router=useRouter()
-    const [socket,setSocket]=useState<WebSocket|null>(null)
-    const socketRef=useRef<WebSocket|null>(null)
-    const [connection,setConnection]=useState<boolean>(false)
-    useEffect(()=>{
+import axios from "axios"
+
+interface SpawnData {
+  userId: string;
+  x: number;
+  y: number;
+  users: { userId: string; x: number; y: number }[];
+}
+
+export function RoomCanvas({ roomId }: { roomId: string }) {
+    const router = useRouter()
+    const socketRef = useRef<WebSocket | null>(null)
+    const [ready, setReady] = useState(false)
+    const [worldData, setWorldData] = useState<{ width: number; height: number; elements: any[] } | null>(null)
+    const [spawnData, setSpawnData] = useState<SpawnData | null>(null)
+    const socketStateRef = useRef<WebSocket | null>(null)
+
+    useEffect(() => {
         const token = localStorage.getItem("token");
-        if (!token) {
-            alert("Please sign in first");
-            router.push("/signup");
-            return;
-        }
-        const ws =new WebSocket(`ws://localhost:3001?token=${token}&roomId=${roomId}`)
-        socketRef.current=ws
-        ws.onopen=()=>{
+        if (!token) { router.push("/signup"); return; }
+
+        axios.get(`http://localhost:3000/api/v1/space/${roomId}`, {
+            headers: { Authorization: `Bearer ${token}` }
+        }).then(res => {
+            const [w, h] = res.data.dimensions.split("x").map(Number);
+            setWorldData({ width: w, height: h, elements: res.data.elements });
+        });
+
+        const ws = new WebSocket(`ws://localhost:3001?token=${token}&roomId=${roomId}`)
+        socketRef.current = ws
+        socketStateRef.current = ws
+
+        // Attach listener BEFORE onopen so we never miss a message
+        ws.addEventListener("message", (event) => {
+            const data = JSON.parse(event.data);
+            if (data.type === "space-joined") {
+                setSpawnData({
+                    userId: data.payload.userId,
+                    x: data.payload.spawn.x,
+                    y: data.payload.spawn.y,
+                    users: data.payload.users,
+                });
+            }
+        });
+
+        ws.onopen = () => {
             ws.send(JSON.stringify({
-               type: "join",
-               payload: {
-                 spaceId: roomId,
-                 token,
-               },
-             }))
-            setConnection(true)
-            setSocket(ws)
-
-        }
-        // ws.onmessage=(event)=>{
-        //     const message=event.data
-        //     console.log("Received message",message)
-        //     setMessages((prev) => [...prev, message]);
-        // }
-        ws.onerror=(err)=>{
-            console.log("Error",err);
-        }
-        ws.onclose=()=>{
-            console.log("socket closed")
+                type: "join",
+                payload: { spaceId: roomId, token },
+            }))
         }
 
-        return ()=>{
-            ws.close()
-            setConnection(false)
-        }
+        ws.onerror = (err) => console.log("WS Error", err)
+        ws.onclose = () => console.log("socket closed")
 
-    },[roomId, router])
+        return () => { ws.close() }
+    }, [roomId, router])
+
+    // Only show Canvas when we have BOTH world metadata AND spawn data
+    useEffect(() => {
+        if (worldData && spawnData) setReady(true)
+    }, [worldData, spawnData])
+
     const sendMessage = (data: object) => {
-    const json = JSON.stringify(data);
-    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-      socketRef.current.send(json);
-    } else {
-      console.warn("Socket not ready");
-    }
+        const ws = socketStateRef.current
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify(data));
+        }
     };
-    if(!socket || !connection){
-        return <div>
-            connecting to server...
-        </div>
-    }
-    return(
-        <>
-            <Canvas roomId={roomId} socket={socket} sendMessage={sendMessage} messages={[]} />
 
-        </>
+    if (!ready || !worldData || !spawnData || !socketRef.current) {
+        return (
+            <div className="h-screen w-screen flex items-center justify-center bg-gray-900 text-white">
+                Loading metaverse world...
+            </div>
+        )
+    }
+
+    return (
+        <Canvas
+            roomId={roomId}
+            socket={socketRef.current}
+            sendMessage={sendMessage}
+            messages={[]}
+            width={worldData.width}
+            height={worldData.height}
+            elements={worldData.elements}
+            initialUserId={spawnData.userId}        // ← pass directly
+            initialSpawn={{ x: spawnData.x, y: spawnData.y }}
+            initialUsers={spawnData.users}
+        />
     )
 }

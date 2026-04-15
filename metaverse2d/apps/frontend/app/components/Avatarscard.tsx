@@ -43,9 +43,13 @@ export default function AvatarCard() {
               },
             }
           );
+          alert("Avatar updated!");
+          // REDIRECT: Move them to the space creation or selection page
+          router.push('/create_space');
 
     }catch{
-        alert("select an avatar")
+      console.error(err);
+      alert("select an avatar")
     }
   }
   return (
@@ -53,12 +57,14 @@ export default function AvatarCard() {
       <h2 className="text-xl font-semibold mb-4">Avatars</h2>
       <div className="grid grid-cols-2 gap-4">
         {avatars.map((avatar) => (
-          <div key={avatar.id} className="flex flex-col items-center space-y-2">
+          <div key={avatar.id} className="flex flex-col items-center space-y-2 p-2 rounded-xl transition-all ${
+      avaId === avatar.id ? 'bg-blue-100 ring-2 ring-blue-500' : 'hover:bg-gray-50'
+    }`}">
             <button onClick={()=>{HandleClick(avatar.id)}}>
 
-            <img src={avatar.imageurl} alt={avatar.name} className="w-16 h-16 rounded-full object-cover" />
+            <img src={avatar.imageurl} alt={avatar.name} className="w-16 h-16 rounded-full object-cover shadow-sm" />
             </button>
-            <span className="text-sm font-medium">{avatar.name}</span>
+            <span className="text-sm font-medium text-gray-700">{avatar.name}</span>
           </div>
         ))}
       </div>
