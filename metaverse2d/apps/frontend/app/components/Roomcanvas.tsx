@@ -11,6 +11,9 @@ interface SpawnData {
   y: number;
   users: { userId: string; x: number; y: number }[];
 }
+const BackendAPI = process.env.NEXT_PUBLIC_HTTPBACKEND;
+const WSBackend = process.env.NEXT_PUBLIC_WSBACKEND;
+
 
 export function RoomCanvas({ roomId }: { roomId: string }) {
     const router = useRouter()
@@ -19,19 +22,33 @@ export function RoomCanvas({ roomId }: { roomId: string }) {
     const [worldData, setWorldData] = useState<{ width: number; height: number; elements: any[] } | null>(null)
     const [spawnData, setSpawnData] = useState<SpawnData | null>(null)
     const socketStateRef = useRef<WebSocket | null>(null)
+    const [avatarMap, setAvatarMap] = useState<Record<string, string>>({});
+
+    function handleAvatarNeeded(userId: string) {
+      const token = localStorage.getItem("token")!;
+      axios.get(`${BackendAPI}/api/v1/user/metadata/bulk?ids=[${userId}]`, {
+        headers: { Authorization: `Bearer ${token}` }
+      }).then(res => {
+        const a = res.data.avatars?.[0];
+        if (a?.avatarId) {
+          setAvatarMap(prev => ({ ...prev, [userId]: a.avatarId }));
+        }
+      });
+    }
+
 
     useEffect(() => {
         const token = localStorage.getItem("token");
         if (!token) { router.push("/signup"); return; }
 
-        axios.get(`http://localhost:3000/api/v1/space/${roomId}`, {
+        axios.get(`${BackendAPI}/api/v1/space/${roomId}`, {
             headers: { Authorization: `Bearer ${token}` }
         }).then(res => {
             const [w, h] = res.data.dimensions.split("x").map(Number);
             setWorldData({ width: w, height: h, elements: res.data.elements });
         });
 
-        const ws = new WebSocket(`ws://localhost:3001?token=${token}&roomId=${roomId}`)
+        const ws = new WebSocket(`${WSBackend}?token=${token}&roomId=${roomId}`)
         socketRef.current = ws
         socketStateRef.current = ws
 
@@ -45,6 +62,18 @@ export function RoomCanvas({ roomId }: { roomId: string }) {
                     y: data.payload.spawn.y,
                     users: data.payload.users,
                 });
+                const token = localStorage.getItem("token")!;
+                const allIds = [data.payload.userId, ...data.payload.users.map((u: any) => u.userId)];
+                const idsParam = `[${allIds.join(",")}]`;
+                axios.get(`${BackendAPI}/api/v1/user/metadata/bulk?ids=${idsParam}`, {
+                  headers: { Authorization: `Bearer ${token}` }
+                }).then(res => {
+                  const map: Record<string, string> = {};
+                  res.data.avatars.forEach((a: any) => {
+                    if (a.avatarId) map[a.userId] = a.avatarId; // avatarId here is actually imageUrl from your route
+                  });
+                  setAvatarMap(map);
+                }).catch(() => {});
             }
         });
 
@@ -93,6 +122,8 @@ export function RoomCanvas({ roomId }: { roomId: string }) {
             initialUserId={spawnData.userId}        // ← pass directly
             initialSpawn={{ x: spawnData.x, y: spawnData.y }}
             initialUsers={spawnData.users}
+            avatarMap={avatarMap}
+            onAvatarNeeded={handleAvatarNeeded}
         />
     )
 }

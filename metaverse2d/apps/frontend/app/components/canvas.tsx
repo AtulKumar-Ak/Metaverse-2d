@@ -23,6 +23,8 @@ interface CanvasProps {
   initialUserId: string;                                    // ← new
   initialSpawn: { x: number; y: number };                  // ← new
   initialUsers: { userId: string; x: number; y: number }[]; // ← new
+  avatarMap: Record<string, string>;
+  onAvatarNeeded: (userId: string) => void;
 }
 const imageCache: Record<string, HTMLImageElement> = {};
 export function Canvas(props: CanvasProps) {
@@ -78,6 +80,7 @@ useEffect(() => {
           ...prev,
           [joinedId]: { userId: joinedId, x, y },
         }));
+        props.onAvatarNeeded(joinedId);
         break;
       }
 
@@ -221,7 +224,7 @@ useEffect(() => {
     const camY = (currentUser?.y ?? 0) * tileSize - canvas.height / 2;
 
     // Draw grid
-    ctx.strokeStyle = "#cbd5e1";
+    ctx.strokeStyle = "rgba(0,245,255,0.08)";
     ctx.lineWidth = 1;
     // Calculate where the first line should start based on camera offset
     const offsetX = -camX % tileSize;
@@ -246,7 +249,7 @@ useEffect(() => {
     // Replace 100 with your actual space width/height if passed in props
     const spaceWidth = props.width;
     const spaceHeight = props.height;
-    ctx.strokeStyle = "#ef4444"; // Red border for world limits
+    ctx.strokeStyle = "#ff3366"; // Red border for world limits
     ctx.lineWidth = 4;
     ctx.strokeRect(
       0 - camX, 
@@ -288,57 +291,166 @@ props.elements?.forEach((e: any) => {
 });
     // Draw other players
     others.forEach((p) => {
-      const px = p.x * tileSize - camX + tileSize / 2;
-      const py = p.y * tileSize - camY + tileSize / 2;
+      const px = p.x * tileSize - camX ;
+      const py = p.y * tileSize - camY ;
       
       // Only draw if within canvas bounds (with some margin)
-      if (px > -50 && px < canvas.width + 50 && py > -50 && py < canvas.height + 50) {
-        ctx.beginPath();
-        ctx.fillStyle = "#f87171";
-        ctx.arc(px, py, 20, 0, Math.PI * 2);
-        ctx.fill();
+      if (px > -tileSize && px < canvas.width + tileSize && py > -tileSize && py < canvas.height + tileSize) {
+        const avatarUrl = props.avatarMap[p.userId];
+        if (avatarUrl) {
+          // Draw avatar image
+          if (!imageCache[avatarUrl]) {
+            const img = new Image();
+            img.src = avatarUrl;
+            img.onload = () => { imageCache[avatarUrl] = img; setImagesLoaded(prev => prev + 1); };
+          } else {
+            // Shadow/glow ring
+            ctx.save();
+            ctx.shadowColor = '#00aaff';
+            ctx.shadowBlur = 12;
+            ctx.drawImage(imageCache[avatarUrl], px, py, tileSize, tileSize);
+            ctx.restore();
+          }
+        } else {
+          // Fallback circle
+          ctx.beginPath();
+          ctx.fillStyle = '#0088ff';
+          ctx.arc(px + tileSize / 2, py + tileSize / 2, tileSize / 2 - 4, 0, Math.PI * 2);
+          ctx.fill();
+        }
         
         // Draw user ID
-        ctx.fillStyle = "#000";
-        ctx.font = "14px Arial";
-        ctx.textAlign = "center";
+        ctx.fillStyle = 'rgba(3,5,8,0.8)';
+        ctx.fillRect(px, py - 18, tileSize, 16);
+        ctx.fillStyle = '#7ab8d4';
+        ctx.font = 'bold 10px "Share Tech Mono", monospace';
+        ctx.textAlign = 'center';
         if (p.userId) {
-            ctx.fillText(p.userId.slice(0, 3), px, py + 35);
+            ctx.fillText(p.userId.slice(0, 6), px + tileSize / 2, py - 6);
         }
       }
     });
 
-    // Draw current user
-    if (currentUser) {
-  const px = currentUser.x * tileSize - camX;
-  const py = currentUser.y * tileSize - camY;
-  
-  // Draw player body
-  ctx.fillStyle = "#4ade80";
-  ctx.fillRect(px + 5, py + 5, tileSize - 10, tileSize - 10); // Centered square
-  
-  // Draw "You" tag
-  ctx.fillStyle = "#1e293b";
-  ctx.font = "bold 12px sans-serif";
-  ctx.textAlign = "center";
-  ctx.fillText("YOU", px + tileSize/2, py - 5);
-}
-  },[players, canvasSize, props.elements, imagesLoaded]);
+    // Draw current user — with their avatar
+  if (currentUser) {
+    const px = currentUser.x * tileSize - camX;
+    const py = currentUser.y * tileSize - camY;
+    const avatarUrl = props.avatarMap[activeId];
+
+    if (avatarUrl && imageCache[avatarUrl]) {
+      // Glow ring for self
+      ctx.save();
+      ctx.shadowColor = '#00f5ff';
+      ctx.shadowBlur = 16;
+      ctx.drawImage(imageCache[avatarUrl], px, py, tileSize, tileSize);
+      ctx.restore();
+
+      // Cyan border
+      ctx.strokeStyle = '#00f5ff';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(px + 1, py + 1, tileSize - 2, tileSize - 2);
+    } else if (avatarUrl) {
+      // Load it
+      if (!imageCache[avatarUrl]) {
+        const img = new Image();
+        img.src = avatarUrl;
+        img.onload = () => { imageCache[avatarUrl] = img; setImagesLoaded(prev => prev + 1); };
+      }
+      // While loading, draw placeholder
+      ctx.fillStyle = '#00ff88';
+      ctx.fillRect(px + 5, py + 5, tileSize - 10, tileSize - 10);
+    } else {
+      // No avatar set — neon green square
+      ctx.fillStyle = '#00ff88';
+      ctx.shadowColor = '#00ff88';
+      ctx.shadowBlur = 12;
+      ctx.fillRect(px + 5, py + 5, tileSize - 10, tileSize - 10);
+      ctx.shadowBlur = 0;
+    }
+
+    // "YOU" tag above
+    ctx.fillStyle = 'rgba(3,5,8,0.85)';
+    ctx.fillRect(px, py - 20, tileSize, 18);
+    ctx.strokeStyle = '#00f5ff';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(px, py - 20, tileSize, 18);
+    ctx.fillStyle = '#00f5ff';
+    ctx.font = 'bold 10px "Orbitron", monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('YOU', px + tileSize / 2, py - 7);
+  }
+},[players, canvasSize, props.elements, imagesLoaded]);
 
   return (
-    <div className="relative w-screen h-screen overflow-hidden bg-gray-100">
-      <canvas
-        ref={canvasRef}
-        width={canvasSize.width}
-        height={canvasSize.height}
-        className="absolute top-0 left-0 cursor-crosshair"
-        tabIndex={0}
-      />
-      {/* Instructions */}
-      <div className="absolute top-4 left-4 bg-black bg-opacity-50 text-white p-2 rounded text-sm">
-        Use WASD or Arrow keys to move
+  <div className="relative w-screen h-screen overflow-hidden" style={{ background: '#030508' }}>
+    <canvas
+      ref={canvasRef}
+      width={canvasSize.width}
+      height={canvasSize.height}
+      className="absolute top-0 left-0 cursor-crosshair"
+      tabIndex={0}
+    />
+
+    {/* Top HUD bar */}
+    <div className="absolute top-0 left-0 right-0 h-10 flex items-center justify-between px-4"
+      style={{
+        background: 'linear-gradient(180deg, rgba(3,5,8,0.95) 0%, transparent 100%)',
+        borderBottom: '1px solid rgba(0,245,255,0.08)'
+      }}>
+      <div className="flex items-center gap-3">
+        <div className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--neon-green)', boxShadow: '0 0 6px var(--neon-green)' }} />
+        <span className="font-display text-xs" style={{ color: 'var(--neon-cyan)', letterSpacing: '0.2em' }}>
+          METAVERSE_2D
+        </span>
       </div>
-      {/* Proximity video panel — appears automatically when near others */}
+      <div className="font-mono-hud text-xs" style={{ color: 'var(--text-dim)' }}>
+        SPACE: {props.roomId.slice(0, 12).toUpperCase()}
+      </div>
+    </div>
+
+    {/* Move instructions */}
+    <div className="absolute top-12 left-4 font-mono-hud text-xs px-3 py-2 rounded-sm"
+      style={{
+        background: 'rgba(6,12,18,0.85)',
+        border: '1px solid var(--border-dim)',
+        color: 'var(--text-dim)',
+        backdropFilter: 'blur(4px)'
+      }}>
+      <span style={{ color: 'var(--neon-cyan)' }}>WASD</span> / ARROWS — MOVE
+    </div>
+
+    {/* Player position HUD */}
+    <div className="absolute bottom-4 left-4 font-mono-hud text-xs px-3 py-2 rounded-sm"
+      style={{
+        background: 'rgba(6,12,18,0.85)',
+        border: '1px solid var(--border-dim)',
+        color: 'var(--text-dim)',
+        backdropFilter: 'blur(4px)'
+      }}>
+      {(() => {
+        const p = players[userIdRef.current];
+        return p ? (
+          <>
+            <span style={{ color: 'var(--neon-cyan)' }}>POS</span>{' '}
+            X:<span style={{ color: 'var(--neon-green)' }}>{p.x}</span>{' '}
+            Y:<span style={{ color: 'var(--neon-green)' }}>{p.y}</span>
+          </>
+        ) : null;
+      })()}
+    </div>
+
+    {/* Player count */}
+    <div className="absolute top-12 right-4 font-mono-hud text-xs px-3 py-2 rounded-sm"
+      style={{
+        background: 'rgba(6,12,18,0.85)',
+        border: '1px solid var(--border-dim)',
+        color: 'var(--text-dim)',
+        backdropFilter: 'blur(4px)'
+      }}>
+      <span style={{ color: 'var(--neon-amber)' }}>ONLINE</span>{' '}
+      {Object.keys(players).length}
+    </div>
+
     <ProximityVideoPanel
       localStream={localStream}
       isVideoOn={isVideoOn}
@@ -346,6 +458,6 @@ props.elements?.forEach((e: any) => {
       proximityGroup={proximityGroup}
       onToggleVideo={toggleVideo}
     />
-    </div>
-  );
+  </div>
+);
 }

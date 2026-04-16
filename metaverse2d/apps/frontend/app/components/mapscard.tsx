@@ -4,6 +4,9 @@ import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useRouter } from 'next/navigation';
 
+const BackendAPI = process.env.NEXT_PUBLIC_HTTPBACKEND;
+
+
 interface Map {
   mapId: string;
   name: string;
@@ -19,7 +22,7 @@ export default function MapCard() {
     const token = localStorage.getItem('token');
     if (!token) return router.push('/signup');
 
-    axios.get('http://localhost:3000/api/v1/admin/maps', {
+    axios.get(`${BackendAPI}/api/v1/admin/maps`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },

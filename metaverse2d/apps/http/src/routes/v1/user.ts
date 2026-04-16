@@ -69,3 +69,22 @@ userRouter.get('/metadata/bulk',async(req,res)=>{
     }
    
 })
+
+userRouter.get('/me', async (req, res) => {
+  try {
+    const user = await client.user.findUnique({
+      where: { id: req.userId },
+      include: { avatar: true }
+    });
+    if (!user) { res.status(404).json({ message: "Not found" }); return; }
+    res.json({
+      userId: user.id,
+      username: user.username,
+      avatarId: user.avatarId,
+      avatarUrl: user.avatar?.imageUrl ?? null,
+      avatarName: user.avatar?.name ?? null,
+    });
+  } catch {
+    res.status(500).json({ message: "Server error" });
+  }
+});
