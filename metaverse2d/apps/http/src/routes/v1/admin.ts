@@ -1,3 +1,4 @@
+//apps/http/src/routes/v1/admin.ts
 import { Router } from "express";
 import { adminMiddleware } from "../../middlewares/admin";
 import  client from "@repo/db/client";

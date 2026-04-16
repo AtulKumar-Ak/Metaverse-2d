@@ -1,3 +1,4 @@
+//apps/http/src/types/index.ts
 import z from 'zod';
 
 export const SignupSchema=z.object({

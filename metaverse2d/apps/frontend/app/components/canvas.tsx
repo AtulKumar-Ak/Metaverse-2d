@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useWebRTC } from "../hooks/useWebRTC";
 import { isNear, getProximityVolume, Player } from "./SpatialManger";
+import { ProximityVideoPanel } from "./ProximityVideoPanel";
 interface Player {
   userId: string;
   x: number;
@@ -30,7 +31,9 @@ export function Canvas(props: CanvasProps) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [userId, setUserId] = useState<string>(props.initialUserId);
   const [canvasSize, setCanvasSize] = useState({ width: props.width, height: props.height });
-  const { initiateCall, disconnectFrom, setUserVolume, handleSignaling, peerConnections } = useWebRTC(props.socket, userId);
+  const { initiateCall, disconnectFrom, setUserVolume, toggleVideo,
+        handleSignaling, peerConnections, localStream, isVideoOn,
+        remoteStreams, proximityGroup } = useWebRTC(props.socket, userId);
   
   const tileSize = 50;
   const [players, setPlayers] = useState<Record<string, Player>>(() => {
@@ -335,6 +338,14 @@ props.elements?.forEach((e: any) => {
       <div className="absolute top-4 left-4 bg-black bg-opacity-50 text-white p-2 rounded text-sm">
         Use WASD or Arrow keys to move
       </div>
+      {/* Proximity video panel — appears automatically when near others */}
+    <ProximityVideoPanel
+      localStream={localStream}
+      isVideoOn={isVideoOn}
+      remoteStreams={remoteStreams}
+      proximityGroup={proximityGroup}
+      onToggleVideo={toggleVideo}
+    />
     </div>
   );
 }

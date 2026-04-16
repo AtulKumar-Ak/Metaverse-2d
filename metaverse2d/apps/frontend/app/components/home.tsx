@@ -1,3 +1,4 @@
+//apps/frontend/app/components/home.tsx
 'use client';
 import AvatarCard from './Avatarscard';
 

@@ -1,3 +1,4 @@
+//apps/frontend/app/components/Avatarscard.tsx
 'use client';
 import { useEffect, useState } from 'react';
 import axios from 'axios';
