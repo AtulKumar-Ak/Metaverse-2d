@@ -131,7 +131,13 @@ spaceRouter.post('/',async(req,res)=>{
             },select:{
                 width:true,
                 height:true,
-                mapElements:true
+                mapElements: {
+                  select: {
+                    elementId: true,
+                    x: true,
+                    y: true,
+                  }
+                }
             }
         })
         if(!mapp){
@@ -144,8 +150,8 @@ spaceRouter.post('/',async(req,res)=>{
             const space=await client.space.create({
                 data:{
                     name: parseData.data.name,
-                    width: parseInt(parseData.data.dimensions.split("x")[0]),
-                    height: parseInt(parseData.data.dimensions.split("x")[1]),
+                    width: mapp.width,
+                    height: mapp.height,
                     creatorId: req.userId as string
                 }
             })
@@ -226,7 +232,8 @@ spaceRouter.get('/:spaceId',async(req,res)=>{
                 id:x.element.id,
                 imageUrl:x.element.imageUrl,
                 height:x.element.height,
-                width:x.element.width
+                width:x.element.width,
+                static: x.element.static
             },
             x:x.x,
             y:x.y

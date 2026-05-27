@@ -6,6 +6,8 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { useWebRTC } from "../hooks/useWebRTC";
 import { isNear, getProximityVolume, Player } from "./SpatialManger";
 import { ProximityVideoPanel } from "./ProximityVideoPanel";
+import axios from "axios";
+const BackendAPI = process.env.NEXT_PUBLIC_HTTPBACKEND;
 interface Player {
   userId: string;
   x: number;
@@ -36,8 +38,41 @@ export function Canvas(props: CanvasProps) {
   const { initiateCall, disconnectFrom, setUserVolume, toggleVideo,
         handleSignaling, peerConnections, localStream, isVideoOn,
         remoteStreams, proximityGroup } = useWebRTC(props.socket, userId);
+  const [showInvite, setShowInvite] = useState(false);
+  const [inviteUsername, setInviteUsername] = useState('');
+  const [inviteStatus, setInviteStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle');
+  const [inviteError, setInviteError] = useState('');
   
-  const tileSize = 50;
+  
+  async function sendInvite() {
+  if (!inviteUsername.trim()) return;
+  setInviteStatus('sending');
+  const token = localStorage.getItem('token');
+  try {
+    await axios.post(`${BackendAPI}/api/v1/user/invite`, {
+      username: inviteUsername.trim(),
+      spaceId: props.roomId,
+      spaceName: props.roomId, // or pass a spaceName prop if you have it
+    }, { headers: { Authorization: `Bearer ${token}` } });
+    setInviteStatus('sent');
+    setInviteUsername('');
+    setTimeout(() => { setInviteStatus('idle'); setShowInvite(false); }, 2000);
+  } catch (e: any) {
+    setInviteError(e?.response?.data?.message || 'Failed to send invite');
+    setInviteStatus('error');
+    setTimeout(() => { setInviteStatus('idle'); setInviteError(''); }, 3000);
+  }
+}
+  
+
+
+const tileSize = 50;
+  const playersRef = useRef<Record<string, Player>>({});
+  const lastMoveTime = useRef<number>(0);
+  const MOVE_COOLDOWN_MS = 120;
+  const isTileBlocked = useCallback((x: number, y: number) => {
+    return props.elements?.some((e: any) => e.x === x && e.y === y && e.element?.static);
+  }, [props.elements]);
   const [players, setPlayers] = useState<Record<string, Player>>(() => {
     const initial: Record<string, Player> = {};
     props.initialUsers.forEach(u => { initial[u.userId] = u; });
@@ -63,6 +98,10 @@ export function Canvas(props: CanvasProps) {
     return () => window.removeEventListener("resize", updateCanvasSize);
   }, []);
 
+
+  useEffect(() => {
+    playersRef.current = players;
+  }, [players]);
   // canvas.tsx
 
 
@@ -138,20 +177,25 @@ useEffect(() => {
 
 
   const move = useCallback((dx: number, dy: number) => {
-    
+  const now = Date.now();
+  if (now - lastMoveTime.current < MOVE_COOLDOWN_MS) return; // ← throttle
+  lastMoveTime.current = now;
   const activeId = userIdRef.current;
   const current = players[activeId];
   if (!activeId || !current) return;
 
   const newX = current.x + dx;
   const newY = current.y + dy;
+  if (newX < 0 || newX >= props.width || newY < 0 || newY >= props.height) return;
+  if (isTileBlocked(newX, newY)) return;
+
   const updatedMe: Player = { userId: activeId, x: newX, y: newY };
 
   setPlayers((prev) => ({ ...prev, [activeId]: updatedMe }));
   props.sendMessage({ type: "move", payload: { x: newX, y: newY, userId: activeId } });
 
   // Proximity voice chat
-  Object.values(players).forEach((otherPlayer) => {
+  Object.values(playersRef.current).forEach((otherPlayer) => {
     if (otherPlayer.userId === activeId) return;
 
     const near = isNear(updatedMe, otherPlayer);
@@ -171,6 +215,7 @@ useEffect(() => {
   // Handle keyboard controls
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
+      if (showInvite) return; // Don't move if invite panel is open
       switch (e.key) {
         case "ArrowUp":
         case "w": 
@@ -201,7 +246,7 @@ useEffect(() => {
     
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [move]);
+  }, [move,showInvite]);
 
   // Drawing effect
   useEffect(() => {
@@ -261,33 +306,41 @@ useEffect(() => {
     const drawImage = (url: string, x: number, y: number) => {
     if (!imageCache[url]) {
         const img = new Image();
+        img.crossOrigin = 'anonymous';
         img.src = url;
         img.onload = () => {
             imageCache[url] = img;
             // This force-triggers the useEffect to run again once the image is ready
             setImagesLoaded(prev => prev + 1);
         };
-        return; 
-    }
+        img.onerror = () => {
+          console.error('Failed to load element image:', url); // ← add this
+        };
+        return;
+      }
     ctx.drawImage(imageCache[url], x, y, tileSize, tileSize);
 };
 
 // 3. Update the loop that draws elements
 props.elements?.forEach((e: any) => {
-    const ex = e.x * tileSize - camX;
-    const ey = e.y * tileSize - camY;
+  const ex = e.x * tileSize - camX;
+  const ey = e.y * tileSize - camY;
 
-    // Based on your Prisma include: include: { element: true }
-    // The imageUrl is inside e.element.imageUrl
-    const imageUrl = e.element?.imageUrl;
-
-    if (imageUrl) {
-        drawImage(imageUrl, ex, ey);
-    } else {
-        // Fallback color so you can at least see where the objects are
-        ctx.fillStyle = e.element?.static ? "#334155" : "#94a3b8"; 
-        ctx.fillRect(ex, ey, tileSize, tileSize);
-    }
+  if (e.element?.static) {
+    // Static/wall — solid red block
+    ctx.fillStyle = 'rgba(255,51,102,0.85)';
+    ctx.fillRect(ex, ey, tileSize, tileSize);
+    ctx.strokeStyle = '#ff3366';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(ex + 0.5, ey + 0.5, tileSize - 1, tileSize - 1);
+  } else {
+    // Dynamic/walkable — faint cyan tint
+    ctx.fillStyle = 'rgba(0,245,255,0.15)';
+    ctx.fillRect(ex, ey, tileSize, tileSize);
+    ctx.strokeStyle = 'rgba(0,245,255,0.3)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(ex + 0.5, ey + 0.5, tileSize - 1, tileSize - 1);
+  }
 });
     // Draw other players
     others.forEach((p) => {
@@ -450,6 +503,97 @@ props.elements?.forEach((e: any) => {
       <span style={{ color: 'var(--neon-amber)' }}>ONLINE</span>{' '}
       {Object.keys(players).length}
     </div>
+    <button
+    onClick={() => setShowInvite(v => !v)}
+      className="absolute font-mono-hud text-xs px-3 py-2 rounded-sm transition-all"
+      style={{
+        top: '0px', right: '5px', // sits below the ONLINE counter... 
+        // actually place it to the left of ONLINE:
+        //top: '48px', right: '120px',
+        background: 'rgba(6,12,18,0.85)',
+        border: '1px solid rgba(0,255,136,0.3)',
+        color: 'var(--neon-green)',
+        backdropFilter: 'blur(4px)',
+      }}>
+      + INVITE
+    </button>
+    {/* Invite panel */}
+{showInvite && (
+  <div className="absolute font-mono-hud z-50"
+    style={{
+      top: '30px', right: '5px',
+      background: 'rgba(6,12,18,0.97)',
+      border: '1px solid rgba(0,245,255,0.2)',
+      backdropFilter: 'blur(12px)',
+      width: 280,
+      boxShadow: '0 0 40px rgba(0,245,255,0.08)',
+    }}>
+    {/* Header */}
+    <div className="flex items-center justify-between px-4 py-3 border-b"
+      style={{ borderColor: 'rgba(0,245,255,0.1)' }}>
+      <div>
+        <div className="text-xs tracking-widest" style={{ color: 'var(--text-dim)' }}>// INVITE_PLAYER</div>
+        <div className="text-xs mt-0.5" style={{ color: 'var(--neon-cyan)' }}>Send a world invite</div>
+      </div>
+      <button onClick={() => setShowInvite(false)}
+        className="text-xs px-2 py-1 transition-all"
+        style={{ color: 'var(--text-dim)', border: '1px solid var(--border-dim)' }}>
+        ✕
+      </button>
+    </div>
+
+    <div className="p-4 space-y-3">
+      <div>
+        <label className="block text-xs mb-1.5 tracking-widest" style={{ color: 'var(--text-dim)' }}>
+          USERNAME
+        </label>
+        <input
+          value={inviteUsername}
+          onChange={e => setInviteUsername(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && sendInvite()}
+          placeholder="enter_username"
+          autoFocus
+          className="w-full px-3 py-2 text-xs outline-none"
+          style={{
+            background: 'rgba(0,245,255,0.03)',
+            border: '1px solid var(--border-dim)',
+            color: 'var(--text-primary)',
+            caretColor: 'var(--neon-cyan)',
+          }}
+          onFocus={e => e.target.style.borderColor = 'var(--neon-cyan)'}
+          onBlur={e => e.target.style.borderColor = 'var(--border-dim)'}
+        />
+      </div>
+
+      {inviteStatus === 'error' && (
+        <div className="text-xs px-3 py-2"
+          style={{ background: 'rgba(255,51,102,0.1)', border: '1px solid rgba(255,51,102,0.3)', color: '#ff3366' }}>
+          ✕ {inviteError}
+        </div>
+      )}
+
+      {inviteStatus === 'sent' && (
+        <div className="text-xs px-3 py-2"
+          style={{ background: 'rgba(0,255,136,0.1)', border: '1px solid rgba(0,255,136,0.3)', color: 'var(--neon-green)' }}>
+          ✓ INVITE SENT
+        </div>
+      )}
+
+      <button
+        onClick={sendInvite}
+        disabled={inviteStatus === 'sending' || !inviteUsername.trim()}
+        className="w-full py-2.5 text-xs font-bold tracking-widest transition-all"
+        style={{
+          background: inviteUsername.trim() ? 'var(--neon-green)' : 'rgba(0,255,136,0.05)',
+          color: inviteUsername.trim() ? 'var(--bg-void)' : 'var(--text-dim)',
+          border: `1px solid ${inviteUsername.trim() ? 'transparent' : 'rgba(0,255,136,0.15)'}`,
+          cursor: inviteUsername.trim() ? 'pointer' : 'not-allowed',
+        }}>
+        {inviteStatus === 'sending' ? 'SENDING...' : '▶ SEND INVITE'}
+      </button>
+    </div>
+  </div>
+)}
 
     <ProximityVideoPanel
       localStream={localStream}

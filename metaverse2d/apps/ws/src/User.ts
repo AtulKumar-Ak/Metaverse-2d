@@ -20,6 +20,8 @@ export class User{
     private y:number;
     public userId?:string;
     private spaceId?:string;
+    private lastMoveTime: number = 0;
+    private readonly MOVE_COOLDOWN_MS = 120;
 
     constructor(ws:WebSocket){
         this.id=getRandomString(10);
@@ -76,6 +78,9 @@ export class User{
                     }, this, this.spaceId!);
                     break;
                     case 'move':
+                        const now = Date.now();
+                        if (now - this.lastMoveTime < this.MOVE_COOLDOWN_MS) return;
+                        this.lastMoveTime = now;
                         const targetX = parsedData.payload.x;
                         const targetY = parsedData.payload.y;
                         const xDisplacement = Math.abs(this.x - targetX);
@@ -107,7 +112,7 @@ export class User{
                                     spaceId: this.spaceId,
                                     x: targetX,
                                     y: targetY,
-                                    element: { static: true }
+                                    element: { is: { static: true } }
                                 }
                             });
                         

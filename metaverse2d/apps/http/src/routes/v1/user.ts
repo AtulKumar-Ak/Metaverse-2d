@@ -88,3 +88,82 @@ userRouter.get('/me', async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 });
+userRouter.get("/maps", userMiddleware, async (req, res) => {
+  try {
+    const maps = await client.map.findMany({
+      include: { mapElements: true }
+    });
+    console.log(maps)
+    res.json({
+      maps: maps.map(m => ({
+        id: m.id,
+        name: m.name,
+        thumbnail: m.thumbnail,
+        dimensions: `${m.width}x${m.height}`,
+        elementCount: m.mapElements.length,
+      }))
+    });
+  } catch {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+userRouter.post('/invite', async (req, res) => {
+  const { username, spaceId, spaceName } = req.body;
+  if (!username || !spaceId) {
+    res.status(400).json({ message: "username and spaceId required" });
+    return;
+  }
+  try {
+    const targetUser = await client.user.findUnique({ where: { username } });
+    if (!targetUser) {
+      res.status(404).json({ message: "User not found" });
+      return;
+    }
+    // Don't invite yourself
+    if (targetUser.id === req.userId) {
+      res.status(400).json({ message: "Cannot invite yourself" });
+      return;
+    }
+    await client.notification.create({
+      data: {
+        userId: targetUser.id,
+        fromUserId: req.userId!,
+        spaceId,
+        spaceName: spaceName || 'a space',
+        type: 'INVITE',
+        read: false,
+      }
+    });
+    res.status(200).json({ message: "Invite sent" });
+  } catch (e) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+userRouter.get('/notifications', async (req, res) => {
+  try {
+    const notifications = await client.notification.findMany({
+      where: { userId: req.userId },
+      orderBy: { createdAt: 'desc' },
+      take: 20,
+      include: { fromUser: { select: { username: true } } }
+    });
+    res.json({ notifications });
+  } catch {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+userRouter.patch('/notifications/:id/read', async (req, res) => {
+  try {
+    await client.notification.delete({
+        where:{
+            id: req.params.id, userId: req.userId
+        },
+    });
+    res.json({ message: "Marked as read" });
+  } catch {
+    res.status(500).json({ message: "Server error" });
+  }
+});

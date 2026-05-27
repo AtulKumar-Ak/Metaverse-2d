@@ -126,3 +126,22 @@ adminRouter.post('/map',async(req,res)=>{
         })
     }
 })
+adminRouter.get('/elements', async (req, res) => {
+  try {
+    const elements = await client.element.findMany();
+    res.json({ elements });
+  } catch {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+adminRouter.get('/maps', async (req, res) => {
+  try {
+    const maps = await client.map.findMany({
+      include: { mapElements: { include: { element: true } } }
+    });
+    res.json({ maps });
+  } catch {
+    res.status(500).json({ message: "Server error" });
+  }
+});

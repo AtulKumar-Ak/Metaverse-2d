@@ -2,7 +2,7 @@
 import { useEffect, useState } from 'react';
 import axios from 'axios';
 import { useRouter } from 'next/navigation';
-
+import NotificationBell from './NotificationBell';
 interface Avatar {
   id: string;
   name: string;
@@ -87,6 +87,7 @@ export default function HomeDashboard() {
             METAVERSE_2D
           </span>
         </div>
+          
         <div className="flex items-center gap-6">
           {currentAvatarUrl && (
             <div className="flex flex-col items-center gap-2">
@@ -207,8 +208,9 @@ export default function HomeDashboard() {
 
               <div className="flex flex-row justify-between items-center  font-mono-hud text-xs tracking-widest mb-1" style={{ color: 'var(--text-dim)' }}>
                 <div>// SELECT_CHARACTER [{avatars.length} AVAILABLE]</div>
-                <div className=''><button onClick={() => router.push('/create_space')}
-                  className="font-mono-hud text-xs px-4 py-2 transition-all"
+                <div className=''>
+                  <button onClick={() => router.push('/create_space')}
+                  className="font-mono-hud text-xs px-4 py-2 transition-all cursor-pointer"
                   style={{
                     color: 'var(--neon-cyan)',
                     border: '1px solid rgba(0,245,255,0.3)',
@@ -223,7 +225,9 @@ export default function HomeDashboard() {
                     (e.currentTarget as HTMLElement).style.boxShadow = 'none';
                   }}>
                   ENTER WORLDS →
-                </button></div>
+                </button>
+                  <NotificationBell />
+                </div>
               </div>
               
               <h1 className="font-display text-3xl font-black"
