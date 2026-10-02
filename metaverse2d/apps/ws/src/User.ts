@@ -53,9 +53,12 @@ export class User{
                         return
                     }
                     this.spaceId=space.id
+                    // Ensure we have the space metadata and blocked tiles cached
+                    await RoomManager.getInstance().ensureSpaceLoaded(this.spaceId);
+                    const dims = RoomManager.getInstance().getDimensions(this.spaceId) ?? { width: space.width, height: space.height };
+                    this.x=Math.floor(dims.width/2);
+                    this.y=Math.floor(dims.height/2);
                     RoomManager.getInstance().addUser(this,this.spaceId)
-                    this.x=Math.floor(space.width/2);
-                    this.y=Math.floor(space.height/2);
                     this.send({
                         type:"space-joined",
                         payload:{
@@ -89,35 +92,22 @@ export class User{
                         // 1. Check if the movement is only 1 step
                         if ((xDisplacement === 1 && yDisplacement === 0) || (xDisplacement === 0 && yDisplacement === 1)) {
 
-                            // 2. Fetch the Space dimensions to prevent crossing the red boundary
-                            const space = await client.space.findUnique({
-                                where: { id: this.spaceId },
-                                select: { width: true, height: true }
-                            });
-                        
-                            if (!space) return;
-                        
+                            // 2. Use cached space metadata to prevent crossing boundaries and check collisions
+                            await RoomManager.getInstance().ensureSpaceLoaded(this.spaceId!);
+                            const dims = RoomManager.getInstance().getDimensions(this.spaceId!);
+                            if (!dims) return;
+
                             // Boundary Check: Ensure they stay within 0 and the max dimensions
-                            if (targetX < 0 || targetX >= space.width || targetY < 0 || targetY >= space.height) {
+                            if (targetX < 0 || targetX >= dims.width || targetY < 0 || targetY >= dims.height) {
                                 this.send({
                                     type: "movement-rejected",
                                     payload: { x: this.x, y: this.y, userId: this.userId }
                                 });
                                 return;
                             }
-                        
-                            // 3. Collision Check: Ensure the tile isn't occupied by a "static" element
-                            const obstacle = await client.spaceElements.findFirst({
-                                where: {
-                                    spaceId: this.spaceId,
-                                    x: targetX,
-                                    y: targetY,
-                                    element: { is: { static: true } }
-                                }
-                            });
-                        
-                            if (obstacle) {
-                                // If there's a wall/static element, reject the move
+
+                            // 3. Collision Check: Ensure the tile isn't occupied by a "static" element (using in-memory cache)
+                            if (RoomManager.getInstance().isBlocked(this.spaceId!, targetX, targetY)) {
                                 this.send({
                                     type: "movement-rejected",
                                     payload: { x: this.x, y: this.y }

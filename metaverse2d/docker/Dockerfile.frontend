@@ -1,0 +1,17 @@
+FROM node:24-alpine
+WORKDIR /app
+
+RUN npm install --global pnpm@9.0.0
+
+COPY ./packages ./packages
+COPY ./pnpm-lock.yaml ./pnpm-lock.yaml
+COPY ./pnpm-workspace.yaml ./pnpm-workspace.yaml
+COPY ./turbo.json ./turbo.json
+COPY ./apps/frontend ./apps/frontend
+
+RUN pnpm install --frozen-lockfile
+RUN pnpm --filter @repo/db exec prisma generate
+RUN pnpm --filter frontend build
+
+EXPOSE 3000
+CMD ["pnpm", "--filter", "frontend", "start"]

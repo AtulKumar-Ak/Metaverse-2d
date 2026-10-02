@@ -48,8 +48,8 @@ export default function AvatarCard() {
           // REDIRECT: Move them to the space creation or selection page
           router.push('/create_space');
 
-    }catch{
-      console.error(err);
+    }catch (error){
+      console.error(error);
       alert("select an avatar")
     }
   }
