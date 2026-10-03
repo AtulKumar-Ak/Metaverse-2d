@@ -82,3 +82,26 @@ Learn more about the power of Turborepo:
 - [Filtering](https://turborepo.com/docs/crafting-your-repository/running-tasks#using-filters)
 - [Configuration Options](https://turborepo.com/docs/reference/configuration)
 - [CLI Usage](https://turborepo.com/docs/reference/command-line-reference)
+
+## Deploying on Railway
+
+The GitHub repository contains more than one project. Create separate Railway services from the repository and set **Root Directory** to `/metaverse2d` for each service. Do not use the repository root or the sibling `metavere2dtests` directory.
+
+### Frontend
+
+- Set the builder to Dockerfile and the Dockerfile path to `docker/Dockerfile.frontend`.
+- Set `NEXT_PUBLIC_HTTPBACKEND` to the public HTTPS URL of the HTTP service.
+- Set `NEXT_PUBLIC_WSBACKEND` to the public WSS URL of the WebSocket service.
+
+### HTTP service
+
+- Build command: `pnpm --filter @repo/db exec prisma generate && pnpm --filter http build`
+- Start command: `pnpm --filter http start`
+- Set `DATABASE_URL` to the Railway PostgreSQL connection string.
+
+### WebSocket service
+
+- Build command: `pnpm --filter @repo/db exec prisma generate && pnpm --filter ws build`
+- Start command: `pnpm --filter ws start`
+
+The backend services listen on Railway's injected `PORT`. The frontend's `NEXT_PUBLIC_*` URLs must be set before its image is built because Next.js embeds those values in the client bundle.

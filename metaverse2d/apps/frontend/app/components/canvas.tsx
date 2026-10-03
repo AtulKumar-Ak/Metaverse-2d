@@ -4,7 +4,7 @@
 
 import { useEffect, useRef, useState, useCallback } from "react";
 import { useWebRTC } from "../hooks/useWebRTC";
-import { isNear, getProximityVolume, Player } from "./SpatialManger";
+import { isNear, getProximityVolume } from "./SpatialManger";
 import { ProximityVideoPanel } from "./ProximityVideoPanel";
 import axios from "axios";
 const BackendAPI = process.env.NEXT_PUBLIC_HTTPBACKEND;

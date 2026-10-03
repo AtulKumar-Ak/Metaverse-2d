@@ -49,7 +49,7 @@ export default function CreateSpacePage() {
     ]).then(([spaceRes, mapRes]) => {
       setSpaces(spaceRes.data.spaces || []);
       setMaps(mapRes.data.maps || []);
-    }).catch(() => {console.error('Failed to load data:', err);});
+    }).catch((err) => {console.error('Failed to load data:', err);});
   }, []);
 
   function selectMap(map: MapOption | null) {
